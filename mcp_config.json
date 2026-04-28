@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gst-rate-lookup": {
+      "url": "http://localhost:8000/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}

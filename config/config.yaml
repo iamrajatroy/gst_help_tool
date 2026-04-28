@@ -1,0 +1,191 @@
+# GST Rate Scraping Tool — Configuration
+# =========================================
+
+sources:
+  - name: "CBIC GST Goods Rates"
+    url: "https://www.cbic-gst.gov.in/gst-goods-services-rates.html"
+    source_type: "html"
+    priority: "high"
+    is_primary: true
+    parser_config:
+      table_selector: "table"
+      header_row: 0
+      columns:
+        serial_no: 0
+        description: 1
+        hsn_code: 2
+        rate: 3
+
+  - name: "ClearTax GST Rates"
+    url: "https://cleartax.in/s/gst-rates"
+    source_type: "html"
+    priority: "medium"
+    is_primary: false
+    parser_config:
+      table_selector: "table"
+      header_row: 0
+
+  - name: "BankBazaar GST Rates"
+    url: "https://www.bankbazaar.com/tax/gst-rate.html"
+    source_type: "html"
+    priority: "medium"
+    is_primary: false
+    parser_config:
+      table_selector: "table"
+      header_row: 0
+
+  - name: "IndiaFilings GST Rates"
+    url: "https://www.indiafilings.com/learn/gst-rate-list/"
+    source_type: "html"
+    priority: "low"
+    is_primary: false
+    parser_config:
+      table_selector: "table"
+      header_row: 0
+
+network:
+  timeout: 30
+  retries: 3
+  backoff_factor: 1.5
+  crawl_delay: 2.0
+  max_concurrent: 3
+  user_agent: >-
+    Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+    (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+
+classification:
+  hsn_rules:
+    # Animal products
+    - hsn_prefix_start: 1
+      hsn_prefix_end: 5
+      top_category: "consumer_goods"
+      sub_category: "animal_products"
+    # Vegetable products
+    - hsn_prefix_start: 6
+      hsn_prefix_end: 14
+      top_category: "consumer_goods"
+      sub_category: "vegetable_products"
+    # Food & Beverages
+    - hsn_prefix_start: 15
+      hsn_prefix_end: 24
+      top_category: "consumer_goods"
+      sub_category: "food_beverages"
+    # Minerals & Fuels
+    - hsn_prefix_start: 25
+      hsn_prefix_end: 27
+      top_category: "industrial"
+      sub_category: "minerals_fuels"
+    # Chemicals & Pharma
+    - hsn_prefix_start: 28
+      hsn_prefix_end: 38
+      top_category: "industrial"
+      sub_category: "chemicals_pharma"
+    # Plastics & Rubber
+    - hsn_prefix_start: 39
+      hsn_prefix_end: 40
+      top_category: "industrial"
+      sub_category: "plastics_rubber"
+    # Leather goods
+    - hsn_prefix_start: 41
+      hsn_prefix_end: 43
+      top_category: "consumer_goods"
+      sub_category: "leather_goods"
+    # Wood, Paper, Publishing
+    - hsn_prefix_start: 44
+      hsn_prefix_end: 49
+      top_category: "industrial"
+      sub_category: "wood_paper"
+    # Textiles & Apparel
+    - hsn_prefix_start: 50
+      hsn_prefix_end: 63
+      top_category: "consumer_goods"
+      sub_category: "textiles_apparel"
+    # Footwear & Accessories
+    - hsn_prefix_start: 64
+      hsn_prefix_end: 67
+      top_category: "consumer_goods"
+      sub_category: "footwear_accessories"
+    # Stone, Ceramic, Glass (Construction)
+    - hsn_prefix_start: 68
+      hsn_prefix_end: 70
+      top_category: "industrial"
+      sub_category: "construction_materials"
+    # Jewelry & Precious metals
+    - hsn_prefix_start: 71
+      hsn_prefix_end: 71
+      top_category: "consumer_goods"
+      sub_category: "jewelry"
+    # Base metals
+    - hsn_prefix_start: 72
+      hsn_prefix_end: 83
+      top_category: "industrial"
+      sub_category: "metals"
+    # Machinery & Electronics
+    - hsn_prefix_start: 84
+      hsn_prefix_end: 85
+      top_category: "electronics"
+      sub_category: "computers_electronics"
+    # Vehicles & Transport
+    - hsn_prefix_start: 86
+      hsn_prefix_end: 89
+      top_category: "automotive"
+      sub_category: "vehicles_transport"
+    # Instruments, clocks, musical
+    - hsn_prefix_start: 90
+      hsn_prefix_end: 92
+      top_category: "electronics"
+      sub_category: "instruments"
+    # Arms & ammunition
+    - hsn_prefix_start: 93
+      hsn_prefix_end: 93
+      top_category: "other"
+      sub_category: "arms_ammunition"
+    # Furniture, toys, sports, misc
+    - hsn_prefix_start: 94
+      hsn_prefix_end: 96
+      top_category: "consumer_goods"
+      sub_category: "furniture_misc"
+    # Art & antiques
+    - hsn_prefix_start: 97
+      hsn_prefix_end: 97
+      top_category: "consumer_goods"
+      sub_category: "art_antiques"
+
+  keyword_overrides:
+    mobile: "electronics"
+    smartphone: "electronics"
+    laptop: "electronics"
+    computer: "electronics"
+    television: "electronics"
+    tv: "electronics"
+    tablet: "electronics"
+    monitor: "electronics"
+    printer: "electronics"
+    camera: "electronics"
+    headphone: "electronics"
+    speaker: "electronics"
+    refrigerator: "electronics"
+    washing machine: "electronics"
+    air conditioner: "electronics"
+    microwave: "electronics"
+    fan: "electronics"
+
+expansion:
+  mode: "synthetic_mode"
+  target_rows: 100000
+  catalog_input_path: null
+
+export:
+  output_dir: "output"
+  excel_filename: "gst_products.xlsx"
+  csv_filename: "gst_products.csv"
+  chunk_size: 500000
+  include_validation_sheet: true
+  include_summary_sheet: true
+
+logging:
+  level: "INFO"
+  log_dir: "output/logs"
+  json_format: true
+
+db_path: "output/gst_scraper.db"

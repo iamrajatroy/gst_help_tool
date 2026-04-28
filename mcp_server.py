@@ -1,8 +1,8 @@
 """
-GST Rate MCP Server (Python 3.9+ compatible)
+GST Rate MCP Server (FastMCP)
 
 Model Context Protocol server for querying GST rates from MongoDB.
-Implements MCP over stdio using raw JSON-RPC (no external MCP library needed).
+Uses FastMCP for standard MCP protocol compliance.
 
 Tools:
   - get_gst_rate_by_product   → Fetch GST rate by product name
@@ -11,8 +11,8 @@ Tools:
   - get_gst_categories        → List product categories with counts
 
 Usage:
-    python mcp_server.py                  # Start MCP server (stdio)
-    python mcp_server.py --test           # Quick self-test
+    fastmcp run mcp_server.py          # Start MCP server
+    python mcp_server.py --test        # Quick self-test
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ import sys
 from typing import Any, Optional
 
 from dotenv import load_dotenv
+from fastmcp import FastMCP
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,11 @@ SERVER_NAME = "gst-rate-lookup"
 SERVER_VERSION = "1.0.0"
 
 # ---------------------------------------------------------------------------
+# FastMCP server instance (standard variable name for auto-discovery)
+# ---------------------------------------------------------------------------
+mcp = FastMCP(SERVER_NAME)
+
+# ---------------------------------------------------------------------------
 # MongoDB connection
 # ---------------------------------------------------------------------------
 _client: Optional[AsyncIOMotorClient] = None
@@ -66,95 +72,7 @@ async def close_connection():
 
 
 # ---------------------------------------------------------------------------
-# Tool definitions (MCP schema)
-# ---------------------------------------------------------------------------
-TOOLS = [
-    {
-        "name": "get_gst_rate_by_product",
-        "description": (
-            "Fetch GST rate details by product name. "
-            "Performs a case-insensitive partial match on product names in the database. "
-            "Returns CGST, SGST, IGST rates, HSN code, category, and GST schedule description."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "product_name": {
-                    "type": "string",
-                    "description": "Product name to search for (e.g., 'rice', 'smartphone', 'cement', 'laptop')",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum results to return (default: 5, max: 20)",
-                    "default": 5,
-                },
-            },
-            "required": ["product_name"],
-        },
-    },
-    {
-        "name": "search_gst_by_description",
-        "description": (
-            "Search GST products by matching terms in the official GST schedule description. "
-            "Useful for finding GST rates for generic goods categories. "
-            "Returns deduplicated results grouped by unique description with product counts."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "search_term": {
-                    "type": "string",
-                    "description": "Term to search in GST descriptions (e.g., 'milk', 'motor car', 'jewellery', 'cotton textile')",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum results to return (default: 10, max: 30)",
-                    "default": 10,
-                },
-            },
-            "required": ["search_term"],
-        },
-    },
-    {
-        "name": "get_gst_rate_by_hsn",
-        "description": (
-            "Fetch GST rate details by HSN (Harmonized System Nomenclature) code. "
-            "HSN codes are hierarchical: 2-digit = chapter, 4-digit = heading, 6/8-digit = subheading. "
-            "Searches by prefix match so partial codes work."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "hsn_code": {
-                    "type": "string",
-                    "description": "HSN code to look up (e.g., '8517' for smartphones, '1006' for rice, '7113' for jewellery)",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum results to return (default: 10, max: 20)",
-                    "default": 10,
-                },
-            },
-            "required": ["hsn_code"],
-        },
-    },
-    {
-        "name": "get_gst_categories",
-        "description": (
-            "List all GST product categories with product counts. "
-            "Returns top-level categories (consumer_goods, electronics, industrial, automotive, other) "
-            "and their sub-categories with counts. Useful for understanding available data scope."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-]
-
-
-# ---------------------------------------------------------------------------
-# Tool implementations — all return structured dicts/lists
+# Helper
 # ---------------------------------------------------------------------------
 def _pick_product(doc: dict) -> dict:
     """Extract relevant fields from a MongoDB product document."""
@@ -174,7 +92,20 @@ def _pick_product(doc: dict) -> dict:
     }
 
 
-async def tool_get_gst_rate_by_product(product_name: str, limit: int = 5) -> dict:
+# ---------------------------------------------------------------------------
+# MCP Tools (registered with FastMCP)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def get_gst_rate_by_product(product_name: str, limit: int = 5) -> str:
+    """Fetch GST rate details by product name.
+    Performs a case-insensitive partial match on product names in the database.
+    Returns CGST, SGST, IGST rates, HSN code, category, and GST schedule description.
+
+    Args:
+        product_name: Product name to search for (e.g., 'rice', 'smartphone', 'cement', 'laptop')
+        limit: Maximum results to return (default: 5, max: 20)
+    """
     limit = min(max(1, limit), 20)
     col = await get_collection()
 
@@ -185,14 +116,24 @@ async def tool_get_gst_rate_by_product(product_name: str, limit: int = 5) -> dic
 
     products = [_pick_product(doc) async for doc in cursor]
 
-    return {
+    result = {
         "query": product_name,
         "total_results": len(products),
         "products": products,
     }
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
-async def tool_search_gst_by_description(search_term: str, limit: int = 10) -> dict:
+@mcp.tool()
+async def search_gst_by_description(search_term: str, limit: int = 10) -> str:
+    """Search GST products by matching terms in the official GST schedule description.
+    Useful for finding GST rates for generic goods categories.
+    Returns deduplicated results grouped by unique description with product counts.
+
+    Args:
+        search_term: Term to search in GST descriptions (e.g., 'milk', 'motor car', 'jewellery', 'cotton textile')
+        limit: Maximum results to return (default: 10, max: 30)
+    """
     limit = min(max(1, limit), 30)
     col = await get_collection()
 
@@ -234,14 +175,24 @@ async def tool_search_gst_by_description(search_term: str, limit: int = 10) -> d
         for r in results
     ]
 
-    return {
+    result = {
         "query": search_term,
         "total_results": len(entries),
         "entries": entries,
     }
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
-async def tool_get_gst_rate_by_hsn(hsn_code: str, limit: int = 10) -> dict:
+@mcp.tool()
+async def get_gst_rate_by_hsn(hsn_code: str, limit: int = 10) -> str:
+    """Fetch GST rate details by HSN (Harmonized System Nomenclature) code.
+    HSN codes are hierarchical: 2-digit = chapter, 4-digit = heading, 6/8-digit = subheading.
+    Searches by prefix match so partial codes work.
+
+    Args:
+        hsn_code: HSN code to look up (e.g., '8517' for smartphones, '1006' for rice, '7113' for jewellery)
+        limit: Maximum results to return (default: 10, max: 20)
+    """
     limit = min(max(1, limit), 20)
     col = await get_collection()
 
@@ -258,14 +209,20 @@ async def tool_get_gst_rate_by_hsn(hsn_code: str, limit: int = 10) -> dict:
             seen.add(key)
             products.append(_pick_product(doc))
 
-    return {
+    result = {
         "query": hsn_code,
         "total_results": len(products),
         "products": products,
     }
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
-async def tool_get_gst_categories() -> dict:
+@mcp.tool()
+async def get_gst_categories() -> str:
+    """List all GST product categories with product counts.
+    Returns top-level categories (consumer_goods, electronics, industrial, automotive, other)
+    and their sub-categories with counts. Useful for understanding available data scope.
+    """
     col = await get_collection()
 
     pipeline = [
@@ -297,184 +254,11 @@ async def tool_get_gst_categories() -> dict:
             "sample_hsn": r["sample_hsn"],
         })
 
-    return {
+    result = {
         "total_products": total,
         "categories": categories,
     }
-
-
-# Tool dispatcher
-TOOL_HANDLERS = {
-    "get_gst_rate_by_product": tool_get_gst_rate_by_product,
-    "search_gst_by_description": tool_search_gst_by_description,
-    "get_gst_rate_by_hsn": tool_get_gst_rate_by_hsn,
-    "get_gst_categories": tool_get_gst_categories,
-}
-
-
-async def dispatch_tool(name: str, arguments: dict) -> dict:
-    handler = TOOL_HANDLERS.get(name)
-    if not handler:
-        return {"error": f"Unknown tool: {name}"}
-    return await handler(**arguments)
-
-
-# ---------------------------------------------------------------------------
-# MCP JSON-RPC Server (stdio transport)
-# ---------------------------------------------------------------------------
-class MCPServer:
-    """MCP server implementing JSON-RPC 2.0 over stdio."""
-
-    def __init__(self):
-        self._initialized = False
-
-    def _make_response(self, id: Any, result: Any) -> dict:
-        return {"jsonrpc": "2.0", "id": id, "result": result}
-
-    def _make_error(self, id: Any, code: int, message: str) -> dict:
-        return {"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}
-
-    async def handle_message(self, msg: dict) -> dict | None:
-        method = msg.get("method", "")
-        params = msg.get("params", {})
-        msg_id = msg.get("id")
-
-        # Notifications (no id) — acknowledge silently
-        if msg_id is None:
-            if method == "notifications/initialized":
-                self._initialized = True
-            return None
-
-        if method == "initialize":
-            return self._make_response(msg_id, {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "tools": {"listChanged": False},
-                },
-                "serverInfo": {
-                    "name": SERVER_NAME,
-                    "version": SERVER_VERSION,
-                },
-            })
-
-        elif method == "tools/list":
-            return self._make_response(msg_id, {"tools": TOOLS})
-
-        elif method == "tools/call":
-            tool_name = params.get("name", "")
-            arguments = params.get("arguments", {})
-
-            try:
-                result_data = await dispatch_tool(tool_name, arguments)
-                result_json = json.dumps(result_data, ensure_ascii=False, default=str)
-                return self._make_response(msg_id, {
-                    "content": [{"type": "text", "text": result_json}],
-                    "isError": False,
-                })
-            except Exception as e:
-                error_json = json.dumps({"error": str(e)})
-                return self._make_response(msg_id, {
-                    "content": [{"type": "text", "text": error_json}],
-                    "isError": True,
-                })
-
-        elif method == "ping":
-            return self._make_response(msg_id, {})
-
-        else:
-            return self._make_error(msg_id, -32601, f"Method not found: {method}")
-
-
-# ---------------------------------------------------------------------------
-# Streamable HTTP transport (aiohttp on port 8000)
-# ---------------------------------------------------------------------------
-
-async def handle_mcp_request(request):
-    """POST /mcp — Main MCP JSON-RPC endpoint."""
-    from aiohttp import web
-
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response(
-            {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}},
-            status=400,
-        )
-
-    server: MCPServer = request.app["mcp_server"]
-
-    # Support batch requests (array of messages)
-    if isinstance(body, list):
-        responses = []
-        for msg in body:
-            resp = await server.handle_message(msg)
-            if resp is not None:
-                responses.append(resp)
-        return web.json_response(responses if responses else None, status=200)
-
-    # Single request
-    response = await server.handle_message(body)
-    if response is None:
-        return web.Response(status=202, text="Accepted")
-    return web.json_response(response)
-
-
-async def handle_health(request):
-    """GET /health — Health check."""
-    from aiohttp import web
-
-    col = await get_collection()
-    count = await col.estimated_document_count()
-    return web.json_response({
-        "status": "ok",
-        "server": SERVER_NAME,
-        "version": SERVER_VERSION,
-        "mongodb_collection": MONGODB_COLLECTION,
-        "document_count": count,
-    })
-
-
-async def handle_tools_list(request):
-    """GET /mcp/tools — Quick tool listing (convenience endpoint)."""
-    from aiohttp import web
-
-    return web.json_response({
-        "tools": [
-            {"name": t["name"], "description": t["description"]}
-            for t in TOOLS
-        ]
-    })
-
-
-async def on_startup(app):
-    """Initialize MongoDB connection on server startup."""
-    col = await get_collection()
-    count = await col.estimated_document_count()
-    print(f"   ✓ MongoDB connected: {MONGODB_COLLECTION} ({count:,} documents)")
-
-
-async def on_shutdown(app):
-    """Clean up MongoDB connection on server shutdown."""
-    await close_connection()
-
-
-def create_app() -> "aiohttp.web.Application":
-    """Create the aiohttp web application."""
-    from aiohttp import web
-
-    app = web.Application()
-    app["mcp_server"] = MCPServer()
-
-    # Routes
-    app.router.add_post("/mcp", handle_mcp_request)
-    app.router.add_get("/health", handle_health)
-    app.router.add_get("/mcp/tools", handle_tools_list)
-
-    # Lifecycle hooks
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
-
-    return app
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
 # ---------------------------------------------------------------------------
@@ -494,26 +278,26 @@ async def run_self_test():
     # Test 1: Product name search
     print("📋 Test 1: get_gst_rate_by_product('rice')")
     print("-" * 40)
-    result = await tool_get_gst_rate_by_product("rice", limit=3)
-    print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    result = await get_gst_rate_by_product("rice", limit=3)
+    print(result)
 
     # Test 2: Description search
     print("\n📋 Test 2: search_gst_by_description('motor car')")
     print("-" * 40)
-    result = await tool_search_gst_by_description("motor car", limit=3)
-    print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    result = await search_gst_by_description("motor car", limit=3)
+    print(result)
 
     # Test 3: HSN lookup
     print("\n📋 Test 3: get_gst_rate_by_hsn('8517')")
     print("-" * 40)
-    result = await tool_get_gst_rate_by_hsn("8517", limit=3)
-    print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    result = await get_gst_rate_by_hsn("8517", limit=3)
+    print(result)
 
     # Test 4: Categories
     print("\n📋 Test 4: get_gst_categories()")
     print("-" * 40)
-    result = await tool_get_gst_categories()
-    print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    result = await get_gst_categories()
+    print(result)
 
     await close_connection()
     print("✅ All tests passed!")
@@ -526,17 +310,4 @@ if __name__ == "__main__":
     if "--test" in sys.argv:
         asyncio.run(run_self_test())
     else:
-        from aiohttp import web
-
-        port = int(os.getenv("MCP_PORT", "8000"))
-        print("=" * 60)
-        print("  GST Rate MCP Server (Streamable HTTP)")
-        print("=" * 60)
-        print(f"\n🚀 Starting on http://0.0.0.0:{port}")
-        print(f"   POST /mcp         — JSON-RPC endpoint")
-        print(f"   GET  /health      — Health check")
-        print(f"   GET  /mcp/tools   — List available tools\n")
-
-        app = create_app()
-        web.run_app(app, host="0.0.0.0", port=port, print=None)
-
+        mcp.run()

@@ -310,4 +310,6 @@ if __name__ == "__main__":
     if "--test" in sys.argv:
         asyncio.run(run_self_test())
     else:
-        mcp.run()
+        # Default to streamable-http transport on port 10000
+        port = int(os.getenv("PORT", 10000))
+        mcp.run(transport="streamable-http", port=port)

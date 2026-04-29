@@ -312,4 +312,4 @@ if __name__ == "__main__":
     else:
         # Default to streamable-http transport on port 10000
         port = int(os.getenv("PORT", 10000))
-        mcp.run(transport="streamable-http", port=port)
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
